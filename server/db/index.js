@@ -226,6 +226,11 @@ db.ready = (async () => {
     throw error;
   }
 })();
+// Attach a no-op handler so a misconfigured database surfaces as a controlled
+// per-request JSON error (via the Express error handler) instead of an
+// unhandled-rejection process crash — which on serverless would produce an
+// opaque HTML error page for every route.
+db.ready.catch(() => {});
 
 /** The single local owner profile (single-user mode until auth ships). */
 async function ensureDefaultUser() {

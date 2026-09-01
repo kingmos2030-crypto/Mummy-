@@ -17,7 +17,9 @@ async function request(path, { method = 'GET', body, signal } = {}) {
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
-    data = { error: 'استجابة غير صالحة من الخادم' };
+    // Non-JSON body means we never reached the app's API (proxy/host error
+    // page). Surface the status code so the failure is diagnosable at a glance.
+    data = { error: `استجابة غير صالحة من الخادم (HTTP ${res.status})` };
   }
   if (!res.ok) {
     const error = new Error(data?.error || `فشل الطلب (${res.status})`);
