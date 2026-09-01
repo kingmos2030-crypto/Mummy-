@@ -41,6 +41,38 @@ app.use(
 );
 
 /**
+ * Health check — registered BEFORE the user middleware on purpose so it can
+ * answer with useful JSON even when the database is unreachable, instead of
+ * failing alongside every other route.
+ */
+app.get('/api/health', async (req, res) => {
+  const base = {
+    db: db.driver,
+    tmdb: config.tmdb.enabled ? 'enabled' : 'disabled',
+    time: new Date().toISOString(),
+  };
+  try {
+    await db.ready;
+    const counts = await db.get(
+      `SELECT (SELECT COUNT(*) FROM media) AS media,
+              (SELECT COUNT(*) FROM personal_entries) AS entries,
+              (SELECT COUNT(*) FROM episodes) AS episodes`
+    );
+    res.json({ ok: true, counts, cache: await cache.stats(), ...base });
+  } catch (error) {
+    res.status(503).json({
+      ok: false,
+      ...base,
+      error: 'قاعدة البيانات غير متاحة',
+      details: error.message,
+      hint: db.isRemote
+        ? 'تحقق من صحة DATABASE_URL و DATABASE_AUTH_TOKEN ثم أعد النشر (Redeploy).'
+        : 'على الاستضافة serverless يجب ضبط DATABASE_URL و DATABASE_AUTH_TOKEN (قاعدة Turso مثلًا) — ملف SQLite محلي لا يعمل هناك.',
+    });
+  }
+});
+
+/**
  * Single-owner mode. Everything is scoped to one user row so that adding real
  * authentication later only means replacing this middleware.
  */

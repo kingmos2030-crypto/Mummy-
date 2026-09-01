@@ -39,7 +39,47 @@ function resolveUrl() {
 
 const url = resolveUrl();
 const remote = !url.startsWith('file:');
-const client = createClient({ url, authToken: remote ? config.db.authToken || undefined : undefined });
+
+/**
+ * Deferred initialization: never crash at module load time.
+ * On serverless (Vercel) a module-load crash happens BEFORE Express exists,
+ * so the platform returns an HTML error page instead of JSON. By capturing
+ * the failure here and throwing it on first use, the Express error handler
+ * gets a chance to answer with a clear JSON error instead.
+ */
+let client = null;
+let initError = null;
+
+const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+
+if (isServerless && !remote) {
+  // A file: database on serverless means DATABASE_URL/DATABASE_AUTH_TOKEN are
+  // missing/misconfigured — the local filesystem there is read-only/ephemeral.
+  initError = new Error(
+    'قاعدة البيانات غير مهيأة للنشر: اضبط DATABASE_URL و DATABASE_AUTH_TOKEN (مثال: قاعدة Turso مجانية) ثم أعد النشر. ' +
+      'ملف SQLite محلي لا يعمل على استضافة serverless.'
+  );
+  initError.status = 503;
+} else {
+  try {
+    client = createClient({ url, authToken: remote ? config.db.authToken || undefined : undefined });
+  } catch (error) {
+    initError = new Error(`تعذر تهيئة الاتصال بقاعدة البيانات: ${error.message}`);
+    initError.status = 503;
+    initError.cause = error;
+  }
+}
+
+/** Throws the captured init error (as a controlled 503) or returns the client. */
+function requireClient() {
+  if (initError) {
+    const err = new Error(initError.message);
+    err.status = initError.status || 503;
+    err.cause = initError.cause;
+    throw err;
+  }
+  return client;
+}
 
 function normalizeArgs(args) {
   if (args === undefined || args === null) return [];
@@ -58,7 +98,7 @@ const shapeRun = (result) => ({
 
 const raw = {
   async all(sql, ...args) {
-    const r = await client.execute({ sql, args: pick(args) });
+    const r = await requireClient().execute({ sql, args: pick(args) });
     return r.rows || [];
   },
   async get(sql, ...args) {
@@ -66,11 +106,11 @@ const raw = {
     return rows[0];
   },
   async run(sql, ...args) {
-    const r = await client.execute({ sql, args: pick(args) });
+    const r = await requireClient().execute({ sql, args: pick(args) });
     return shapeRun(r);
   },
   async exec(sql) {
-    return client.executeMultiple(sql);
+    return requireClient().executeMultiple(sql);
   },
 };
 
@@ -82,6 +122,8 @@ const self = {
   driver: remote ? 'remote' : 'local',
   isRemote: remote,
   url: remote ? url.replace(/\/\/(.*)@/, '//***@') : url,
+  /** Non-null when the client could not even be constructed (bad config). */
+  initError,
 
   async all(sql, ...args) {
     await self.ready;
@@ -108,7 +150,7 @@ const self = {
 
   async close() {
     try {
-      client.close();
+      if (client) client.close();
     } catch {
       /* noop */
     }
@@ -123,7 +165,7 @@ let txChain = Promise.resolve();
 function enqueueTx(fn) {
   const job = txChain.then(async () => {
     await self.ready;
-    const t = await client.transaction('write');
+    const t = await requireClient().transaction('write');
     const bound = {
       run: async (sql, ...args) => shapeRun(await t.execute({ sql, args: pick(args) })),
       get: async (sql, ...args) => ((await t.execute({ sql, args: pick(args) })).rows || [])[0],

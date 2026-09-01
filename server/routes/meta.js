@@ -4,7 +4,6 @@ const express = require('express');
 const { db } = require('../db');
 const library = require('../services/library');
 const stats = require('../services/stats');
-const cache = require('../lib/cache');
 const { validate, profileSchema, tagSchema } = require('../lib/validation');
 
 const router = express.Router();
@@ -213,20 +212,8 @@ router.get('/export', wrap(async (req, res) => {
 }));
 
 // ------------------------------------------------------------ health
-router.get('/health', wrap(async (req, res) => {
-  const counts = await db.get(
-    `SELECT (SELECT COUNT(*) FROM media) AS media,
-            (SELECT COUNT(*) FROM personal_entries) AS entries,
-            (SELECT COUNT(*) FROM episodes) AS episodes`
-  );
-  res.json({
-    ok: true,
-    counts,
-    cache: await cache.stats(),
-    db: db.driver,
-    time: new Date().toISOString(),
-  });
-}));
+// (the real /api/health handler lives in server/index.js, registered before
+// the user middleware so it still answers when the database is down)
 
 // ------------------------------------------------------------ SEO helpers
 router.get('/sitemap-data', wrap(async (req, res) => {
