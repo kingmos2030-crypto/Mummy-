@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import Navbar from './components/Navbar';
 import Dashboard from './components/Dashboard';
 import Library from './components/Library';
@@ -82,6 +83,7 @@ export default function App() {
           }}
         />
       )}
+      <SpeedInsights />
     </div>
   );
 }
