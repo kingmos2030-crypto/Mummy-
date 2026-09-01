@@ -142,31 +142,46 @@ export default function Home() {
         </>
       )}
 
-      {discover && (discover.trending?.length > 0 || discover.anime?.length > 0) && (
-        <section className="animate-rise">
-          <div className="mb-2.5">
+      {discover && (
+        <div className="space-y-7">
+          <div className="animate-rise">
             <h2 className="text-lg font-black sm:text-xl">اكتشف أعمالًا جديدة</h2>
             <p className="text-xs text-white/45">
-              {discover.degraded ? 'مقترحات من الكتالوج المحلي (تعذّر الوصول للمزوّدات الخارجية).' : 'الأكثر رواجًا الآن حسب TMDB وJikan.'}
+              {discover.degraded
+                ? 'مقترحات من الكتالوج المحلي (تعذّر الوصول للمزوّدات الخارجية).'
+                : 'الأكثر رواجًا الآن حسب TMDB وJikan.'}
             </p>
           </div>
-          <div className="scroll-row">
-            {[...(discover.trending || []), ...(discover.anime || [])].slice(0, 24).map((item) => (
-              <MediaCard
-                key={item.key}
-                to={`/discover/${item.source}/${item.sourceType}/${encodeURIComponent(item.sourceId)}`}
-                title={item.title}
-                originalTitle={item.originalTitle}
-                posterUrl={item.posterUrl}
-                year={item.releaseYear}
-                mediaType={item.mediaType}
-                genres={item.genres}
-                externalRating={item.externalRating}
-              />
-            ))}
-          </div>
-        </section>
+          <DiscoveryShelf title="رائج الآن" items={discover.trending} />
+          <DiscoveryShelf title="أفلام رائجة" items={discover.popularMovies} />
+          <DiscoveryShelf title="مسلسلات رائجة" items={discover.popularTV} />
+          <DiscoveryShelf title="أنمي رائج" items={discover.anime} />
+        </div>
       )}
     </div>
+  );
+}
+
+function DiscoveryShelf({ title, items = [] }) {
+  if (!items.length) return null;
+  return (
+    <section className="animate-rise">
+      <h3 className="mb-2.5 text-base font-black sm:text-lg">{title}</h3>
+      <div className="scroll-row">
+        {items.slice(0, 20).map((item) => (
+          <MediaCard
+            key={item.key}
+            to={`/discover/${item.source}/${item.sourceType}/${encodeURIComponent(item.sourceId)}`}
+            title={item.title}
+            originalTitle={item.originalTitle}
+            posterUrl={item.posterUrl}
+            year={item.releaseYear}
+            mediaType={item.mediaType}
+            genres={item.genres}
+            externalRating={item.externalRating}
+          />
+        ))}
+      </div>
+    </section>
   );
 }

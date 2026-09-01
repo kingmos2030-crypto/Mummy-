@@ -145,4 +145,29 @@ async function topAnime() {
   return (data?.data || []).map(mapAnime);
 }
 
-module.exports = { search, details, episodes, topAnime };
+/** Lightweight mapper for recommendation entries (slim MAL payloads). */
+function mapEntry(e) {
+  return normalizedMedia({
+    key: mediaKey('jikan', 'anime', e.mal_id),
+    source: 'jikan',
+    sourceType: 'anime',
+    sourceId: e.mal_id,
+    mediaType: 'anime',
+    title: e.title,
+    originalTitle: '',
+    posterUrl: e.images?.jpg?.image_url || null,
+    externalIds: { malId: e.mal_id },
+  });
+}
+
+/** Community "users also like" recommendations for an anime. */
+async function recommendations(malId) {
+  const data = await call(`/anime/${malId}/recommendations`, {}, config.cache.detailsTtlMs);
+  return (data?.data || [])
+    .slice(0, 14)
+    .map((r) => r.entry)
+    .filter(Boolean)
+    .map(mapEntry);
+}
+
+module.exports = { search, details, episodes, topAnime, recommendations };

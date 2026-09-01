@@ -46,6 +46,9 @@ export const api = {
     request(`/discover/media/${source}/${type}/${encodeURIComponent(id)}${qs({ refresh: refresh ? 1 : '' })}`),
   internalDetails: (mediaId) => request(`/discover/internal/${mediaId}`),
   episodes: (mediaId, season) => request(`/discover/internal/${mediaId}/episodes${qs({ season })}`),
+  similarExternal: (source, type, id) =>
+    request(`/discover/media/${source}/${type}/${encodeURIComponent(id)}/similar`),
+  similarInternal: (mediaId) => request(`/discover/internal/${mediaId}/similar`),
 
   library: (filters) => request(`/library${qs(filters)}`),
   addToLibrary: (payload) => request('/library', { method: 'POST', body: payload }),
@@ -67,6 +70,9 @@ export const api = {
   tags: () => request('/tags'),
   createTag: (name, color) => request('/tags', { method: 'POST', body: { name, color } }),
   deleteTag: (id) => request(`/tags/${id}`, { method: 'DELETE' }),
+
+  /** Direct download links (JSON by default, CSV with format='csv'). */
+  exportUrl: (format) => `${BASE}/export${format === 'csv' ? '?format=csv' : ''}`,
 };
 
 export default api;

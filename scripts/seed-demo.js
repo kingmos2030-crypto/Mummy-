@@ -9,7 +9,7 @@
  *   npm run seed:demo -- --reset   # wipe personal data first
  */
 
-const { db, defaultUser } = require('../server/db');
+const { db, ensureDefaultUser } = require('../server/db');
 const discovery = require('../server/services/discovery');
 const libraryService = require('../server/services/library');
 
@@ -30,11 +30,12 @@ const PLAN = [
 
 async function main() {
   const reset = process.argv.includes('--reset');
-  const userId = defaultUser.id;
+  const user = await ensureDefaultUser();
+  const userId = user.id;
 
   if (reset) {
-    db.prepare('DELETE FROM personal_entries WHERE user_id = ?').run(userId);
-    db.prepare('DELETE FROM viewing_history WHERE user_id = ?').run(userId);
+    await db.run('DELETE FROM personal_entries WHERE user_id = ?', [userId]);
+    await db.run('DELETE FROM viewing_history WHERE user_id = ?', [userId]);
     console.log('• personal data cleared');
   }
 
@@ -51,13 +52,13 @@ async function main() {
         sourceType: hit.sourceType,
         sourceId: hit.sourceId,
       });
-      const entry = libraryService.upsertEntry(userId, media.id, item.patch);
+      const entry = await libraryService.upsertEntry(userId, media.id, item.patch);
 
       if (item.episodesUpTo) {
         await discovery.getEpisodes(media.id);
-        const episodes = libraryService.episodesWithProgress(entry.id, media.id);
+        const episodes = await libraryService.episodesWithProgress(entry.id, media.id);
         const target = episodes[item.episodesUpTo - 1];
-        if (target) libraryService.markUpTo(userId, entry.id, target.id);
+        if (target) await libraryService.markUpTo(userId, entry.id, target.id);
       }
       console.log(`✓ ${media.title} — ${item.patch.status}`);
     } catch (error) {
@@ -65,8 +66,9 @@ async function main() {
     }
   }
 
-  const total = db.prepare('SELECT COUNT(*) c FROM personal_entries WHERE user_id = ?').get(userId).c;
+  const total = (await db.get('SELECT COUNT(*) c FROM personal_entries WHERE user_id = ?', [userId])).c;
   console.log(`\nDone. ${total} tracked titles in the library.`);
+  await db.close();
 }
 
 main().catch((e) => {

@@ -9,7 +9,7 @@
  * Every item is flagged `source: 'offline'` so the UI can label it honestly.
  */
 
-const { normalizedMedia, mediaKey } = require('../lib/normalize');
+const { normalizedMedia, mediaKey, editDistance } = require('../lib/normalize');
 
 const RAW = [
   {
@@ -407,16 +407,28 @@ function normalize(text) {
 function search(query, { type } = {}) {
   const q = normalize(query);
   if (!q) return [];
-  const tokens = q.split(' ');
+  const tokens = q.split(' ').filter((t) => t.length > 1);
   return CATALOG.filter((m) => !type || m.mediaType === type)
     .map((m) => {
       const haystack = normalize(
         [m.title, m.originalTitle, ...(m.alternativeTitles || []), ...(m.genres || [])].join(' ')
       );
+      const hayTokens = haystack.split(' ');
       let score = 0;
       if (haystack.startsWith(q)) score += 6;
       if (haystack.includes(q)) score += 4;
-      for (const t of tokens) if (t.length > 1 && haystack.includes(t)) score += 1;
+      for (const t of tokens) {
+        if (haystack.includes(t)) {
+          score += 2;
+        } else {
+          // typo tolerance: a query token within one edit of a haystack token
+          // still counts (covers "interstelar" -> "interstellar")
+          const tolerance = t.length > 7 ? 2 : 1;
+          if (hayTokens.some((h) => Math.abs(h.length - t.length) <= tolerance && editDistance(t, h, tolerance) <= tolerance)) {
+            score += 1;
+          }
+        }
+      }
       return { m, score };
     })
     .filter((x) => x.score > 0)

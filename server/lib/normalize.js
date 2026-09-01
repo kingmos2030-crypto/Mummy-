@@ -91,6 +91,53 @@ function normalizedMedia(partial = {}) {
   };
 }
 
+/**
+ * Damerau–Levenshtein-ish edit distance (small, allocation-friendly).
+ * Used to make ranking tolerant of typos like "interstelar".
+ */
+function editDistance(a, b, max = 3) {
+  const la = a.length;
+  const lb = b.length;
+  if (Math.abs(la - lb) > max) return max + 1;
+  if (!la) return lb;
+  if (!lb) return la;
+  let prev = new Array(lb + 1);
+  for (let j = 0; j <= lb; j += 1) prev[j] = j;
+  for (let i = 1; i <= la; i += 1) {
+    const cur = [i];
+    let rowMin = cur[0];
+    for (let j = 1; j <= lb; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      if (j > 1 && i > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        cur[j] = Math.min(cur[j], prev[j - 2] + cost); // transposition
+      }
+      if (cur[j] < rowMin) rowMin = cur[j];
+    }
+    if (rowMin > max) return max + 1; // early exit
+    prev = cur;
+  }
+  return prev[lb];
+}
+
+/** Token-aware similarity in 0..1 between the query and a candidate title. */
+function fuzzySimilarity(query, candidate) {
+  if (!query || !candidate) return 0;
+  if (query === candidate) return 1;
+  const dist = editDistance(query, candidate, 4);
+  const maxLen = Math.max(query.length, candidate.length);
+  const whole = 1 - dist / maxLen;
+  // also try token-level matching (different word order / partial titles)
+  const qTokens = query.split(' ').filter((t) => t.length > 1);
+  const cTokens = candidate.split(' ').filter((t) => t.length > 1);
+  let tokenHits = 0;
+  for (const qt of qTokens) {
+    if (cTokens.some((ct) => ct === qt || (qt.length > 3 && editDistance(qt, ct, 1) <= 1))) tokenHits += 1;
+  }
+  const tokenScore = qTokens.length ? tokenHits / qTokens.length : 0;
+  return Math.max(whole, tokenScore * 0.9);
+}
+
 /** Lightweight card used in search results / rows. */
 function toCard(media) {
   return {
@@ -120,5 +167,7 @@ module.exports = {
   refineType,
   mediaKey,
   normalizedMedia,
+  editDistance,
+  fuzzySimilarity,
   toCard,
 };

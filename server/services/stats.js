@@ -5,9 +5,23 @@ const library = require('./library');
 
 const round = (n, d = 2) => (n == null ? null : Math.round(n * 10 ** d) / 10 ** d);
 
-function overview(userId) {
-  const base = db
-    .prepare(
+async function overview(userId) {
+  // All aggregates are independent -> run them concurrently (important when
+  // the database is remote, where each query is an HTTP round trip).
+  const [
+    base,
+    byType,
+    byStatus,
+    byQuality,
+    byYear,
+    ratingBuckets,
+    episodesWatched,
+    minutesRow,
+    episodeMinutesRow,
+    genreRows,
+    monthly,
+  ] = await Promise.all([
+    db.get(
       `SELECT
         COUNT(*) AS total,
         SUM(CASE WHEN pe.status = 'watched' THEN 1 ELSE 0 END) AS watched,
@@ -18,85 +32,77 @@ function overview(userId) {
         SUM(CASE WHEN pe.is_favorite = 1 THEN 1 ELSE 0 END) AS favorites,
         AVG(pe.rating) AS avg_rating,
         SUM(pe.rewatch_count) AS rewatches
-       FROM personal_entries pe WHERE pe.user_id = ?`
-    )
-    .get(userId);
-
-  const byType = db
-    .prepare(
+       FROM personal_entries pe WHERE pe.user_id = ?`,
+      [userId]
+    ),
+    db.all(
       `SELECT m.media_type AS type, COUNT(*) AS count,
               SUM(CASE WHEN pe.status = 'watched' THEN 1 ELSE 0 END) AS watched
        FROM personal_entries pe JOIN media m ON m.id = pe.media_id
-       WHERE pe.user_id = ? GROUP BY m.media_type ORDER BY count DESC`
-    )
-    .all(userId);
-
-  const byStatus = db
-    .prepare(
+       WHERE pe.user_id = ? GROUP BY m.media_type ORDER BY count DESC`,
+      [userId]
+    ),
+    db.all(
       `SELECT pe.status, COUNT(*) AS count FROM personal_entries pe
-       WHERE pe.user_id = ? GROUP BY pe.status ORDER BY count DESC`
-    )
-    .all(userId);
-
-  const byQuality = db
-    .prepare(
+       WHERE pe.user_id = ? GROUP BY pe.status ORDER BY count DESC`,
+      [userId]
+    ),
+    db.all(
       `SELECT COALESCE(NULLIF(pe.quality,''),'غير محدد') AS quality, COUNT(*) AS count
-       FROM personal_entries pe WHERE pe.user_id = ? GROUP BY quality ORDER BY count DESC`
-    )
-    .all(userId);
-
-  const byYear = db
-    .prepare(
+       FROM personal_entries pe WHERE pe.user_id = ? GROUP BY quality ORDER BY count DESC`,
+      [userId]
+    ),
+    db.all(
       `SELECT m.release_year AS year, COUNT(*) AS count
        FROM personal_entries pe JOIN media m ON m.id = pe.media_id
        WHERE pe.user_id = ? AND m.release_year IS NOT NULL
-       GROUP BY m.release_year ORDER BY m.release_year`
-    )
-    .all(userId);
-
-  const ratingBuckets = db
-    .prepare(
+       GROUP BY m.release_year ORDER BY m.release_year`,
+      [userId]
+    ),
+    db.all(
       `SELECT CAST(pe.rating AS INTEGER) AS bucket, COUNT(*) AS count
        FROM personal_entries pe WHERE pe.user_id = ? AND pe.rating IS NOT NULL
-       GROUP BY bucket ORDER BY bucket`
-    )
-    .all(userId);
-
-  const episodesWatched = db
-    .prepare(
+       GROUP BY bucket ORDER BY bucket`,
+      [userId]
+    ),
+    db.get(
       `SELECT COUNT(*) c FROM watch_progress wp
        JOIN personal_entries pe ON pe.id = wp.entry_id
-       WHERE pe.user_id = ? AND wp.status = 'watched'`
-    )
-    .get(userId).c;
-
-  const minutes = db
-    .prepare(
+       WHERE pe.user_id = ? AND wp.status = 'watched'`,
+      [userId]
+    ),
+    db.get(
       `SELECT
         COALESCE(SUM(CASE WHEN m.media_type = 'movie' AND pe.status = 'watched'
                      THEN COALESCE(m.runtime,0) * (1 + pe.rewatch_count) ELSE 0 END), 0) AS movie_minutes
-       FROM personal_entries pe JOIN media m ON m.id = pe.media_id WHERE pe.user_id = ?`
-    )
-    .get(userId).movie_minutes;
-
-  const episodeMinutes = db
-    .prepare(
+       FROM personal_entries pe JOIN media m ON m.id = pe.media_id WHERE pe.user_id = ?`,
+      [userId]
+    ),
+    db.get(
       `SELECT COALESCE(SUM(COALESCE(e.runtime, m.runtime, 24)), 0) AS mins
        FROM watch_progress wp
        JOIN personal_entries pe ON pe.id = wp.entry_id
        JOIN episodes e ON e.id = wp.episode_id
        JOIN media m ON m.id = e.media_id
-       WHERE pe.user_id = ? AND wp.status = 'watched'`
-    )
-    .get(userId).mins;
+       WHERE pe.user_id = ? AND wp.status = 'watched'`,
+      [userId]
+    ),
+    db.all(
+      `SELECT m.genres, pe.rating FROM personal_entries pe JOIN media m ON m.id = pe.media_id
+       WHERE pe.user_id = ?`,
+      [userId]
+    ),
+    db.all(
+      `SELECT substr(COALESCE(pe.date_finished, pe.last_watched_at, pe.updated_at), 1, 7) AS month,
+              COUNT(*) AS count
+       FROM personal_entries pe
+       WHERE pe.user_id = ? AND pe.status = 'watched'
+       GROUP BY month ORDER BY month DESC LIMIT 12`,
+      [userId]
+    ),
+  ]);
 
   // genres (JSON arrays exploded in JS — small dataset, keeps SQL portable)
-  const genreRows = db
-    .prepare(
-      `SELECT m.genres, pe.rating FROM personal_entries pe JOIN media m ON m.id = pe.media_id
-       WHERE pe.user_id = ?`
-    )
-    .all(userId);
   const genreMap = new Map();
   for (const row of genreRows) {
     let list = [];
@@ -119,34 +125,28 @@ function overview(userId) {
     .map((g) => ({ genre: g.genre, count: g.count, avgRating: g.rated ? round(g.ratingSum / g.rated) : null }))
     .sort((a, b) => b.count - a.count);
 
-  const topRated = library.listEntries(userId, { sort: 'rating_desc', limit: 10 }).filter((e) => e.rating != null);
-  const lowestRated = library.listEntries(userId, { sort: 'rating_asc', limit: 10 }).filter((e) => e.rating != null);
+  const [topRatedAll, lowestRatedAll] = await Promise.all([
+    library.listEntries(userId, { sort: 'rating_desc', limit: 10 }),
+    library.listEntries(userId, { sort: 'rating_asc', limit: 10 }),
+  ]);
+  const topRated = topRatedAll.filter((e) => e.rating != null);
+  const lowestRated = lowestRatedAll.filter((e) => e.rating != null);
 
-  const monthly = db
-    .prepare(
-      `SELECT substr(COALESCE(pe.date_finished, pe.last_watched_at, pe.updated_at), 1, 7) AS month,
-              COUNT(*) AS count
-       FROM personal_entries pe
-       WHERE pe.user_id = ? AND pe.status = 'watched'
-       GROUP BY month ORDER BY month DESC LIMIT 12`
-    )
-    .all(userId)
-    .reverse()
-    .filter((r) => r.month);
+  const monthlySeries = [...monthly].reverse().filter((r) => r.month);
 
   return {
     totals: {
-      total: base.total || 0,
-      watched: base.watched || 0,
-      watching: base.watching || 0,
-      wantToWatch: base.want || 0,
-      paused: base.paused || 0,
-      dropped: base.dropped || 0,
-      favorites: base.favorites || 0,
-      rewatches: base.rewatches || 0,
-      episodesWatched,
-      averageRating: round(base.avg_rating),
-      minutesWatched: Math.round((minutes || 0) + (episodeMinutes || 0)),
+      total: base?.total || 0,
+      watched: base?.watched || 0,
+      watching: base?.watching || 0,
+      wantToWatch: base?.want || 0,
+      paused: base?.paused || 0,
+      dropped: base?.dropped || 0,
+      favorites: base?.favorites || 0,
+      rewatches: base?.rewatches || 0,
+      episodesWatched: episodesWatched?.c || 0,
+      averageRating: round(base?.avg_rating),
+      minutesWatched: Math.round((minutesRow?.movie_minutes || 0) + (episodeMinutesRow?.mins || 0)),
     },
     byType,
     byStatus,
@@ -154,7 +154,7 @@ function overview(userId) {
     byYear,
     byGenre,
     ratingBuckets,
-    monthly,
+    monthly: monthlySeries,
     topRated,
     lowestRated,
   };

@@ -56,7 +56,7 @@ function ListRow({ entry, onEdit }) {
   );
 }
 
-export default function Library() {
+export default function Library({ presetFavorite = false }) {
   const [params, setParams] = useSearchParams();
   const { libraryVersion, tags, options } = useApp();
   const [entries, setEntries] = useState([]);
@@ -69,7 +69,7 @@ export default function Library() {
     () => ({
       status: params.get('status') || 'all',
       type: params.get('type') || 'all',
-      favorite: params.get('favorite') === 'true' ? 'true' : undefined,
+      favorite: presetFavorite ? 'true' : params.get('favorite') === 'true' ? 'true' : undefined,
       quality: params.get('quality') || '',
       genre: params.get('genre') || '',
       year: params.get('year') || '',
@@ -78,10 +78,14 @@ export default function Library() {
       q: params.get('q') || '',
       sort: params.get('sort') || 'recently_added',
     }),
-    [params]
+    [params, presetFavorite]
   );
 
-  useSeo({ title: 'مكتبتي', description: 'مكتبتي الشخصية في Mummy شافت: كل عمل أضفته مع حالته وتقييمي وملاحظاتي.', noIndex: true });
+  useSeo({
+    title: presetFavorite ? 'مفضلتي' : 'مكتبتي',
+    description: 'مكتبتي الشخصية في Mummy شافت: كل عمل أضفته مع حالته وتقييمي وملاحظاتي.',
+    noIndex: true,
+  });
 
   const load = useCallback(() => {
     setLoading(true);
@@ -126,8 +130,10 @@ export default function Library() {
     <div className="space-y-4">
       <header className="flex flex-wrap items-end justify-between gap-3 animate-rise">
         <div>
-          <h1 className="text-2xl font-black sm:text-3xl">مكتبتي</h1>
-          <p className="mt-1 text-sm text-white/50">{entries.length} عمل {activeFilterCount ? '(مُصفّى)' : ''}</p>
+          <h1 className="text-2xl font-black sm:text-3xl">{presetFavorite ? 'مفضلتي ❤' : 'مكتبتي'}</h1>
+          <p className="mt-1 text-sm text-white/50">
+            {entries.length} عمل {activeFilterCount || presetFavorite ? '(مُصفّى)' : ''}
+          </p>
         </div>
         <div className="flex gap-1.5">
           <button type="button" className={`btn px-3 py-1.5 text-xs ${view === 'grid' ? 'btn-primary' : ''}`} onClick={() => setView('grid')}>
@@ -167,13 +173,15 @@ export default function Library() {
               {TYPE_LABELS[t]}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={() => setFilter('favorite', filters.favorite ? '' : 'true')}
-            className={`chip cursor-pointer ${filters.favorite ? 'chip-brass' : ''}`}
-          >
-            ❤ المفضلة فقط
-          </button>
+          {!presetFavorite && (
+            <button
+              type="button"
+              onClick={() => setFilter('favorite', filters.favorite ? '' : 'true')}
+              className={`chip cursor-pointer ${filters.favorite ? 'chip-brass' : ''}`}
+            >
+              ❤ المفضلة فقط
+            </button>
+          )}
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
@@ -245,9 +253,15 @@ export default function Library() {
 
       {!loading && !error && entries.length === 0 && (
         <EmptyState
-          icon="📚"
-          title={activeFilterCount ? 'لا نتائج مطابقة للفلاتر' : 'مكتبتك فارغة'}
-          hint={activeFilterCount ? 'جرّب تخفيف الفلاتر أو مسحها.' : 'ابحث عن عمل وأضِفه لتبدأ رحلتك.'}
+          icon={presetFavorite ? '❤' : '📚'}
+          title={activeFilterCount ? 'لا نتائج مطابقة للفلاتر' : presetFavorite ? 'لا مفضلات بعد' : 'مكتبتك فارغة'}
+          hint={
+            activeFilterCount
+              ? 'جرّب تخفيف الفلاتر أو مسحها.'
+              : presetFavorite
+                ? 'افتح صفحة أي عمل واضغط زر القلب لإضافته إلى المفضلة.'
+                : 'ابحث عن عمل وأضِفه لتبدأ رحلتك.'
+          }
           action={
             <Link to="/search" className="btn btn-primary mt-3">
               اذهب للبحث
