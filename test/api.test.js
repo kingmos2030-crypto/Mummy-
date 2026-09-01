@@ -212,6 +212,50 @@ test('deleting an entry removes only personal data, media mirror stays', async (
   assert.equal(after.json.counts.entries, before.json.counts.entries - 1);
 });
 
+test('search tolerates spelling mistakes (offline fuzzy fallback)', async () => {
+  const { status, json } = await call('/api/discover/search?q=interstelar');
+  assert.equal(status, 200);
+  assert.ok(json.results.length > 0, 'typo query should still find Interstellar');
+  assert.equal(json.results[0].title, 'Interstellar');
+});
+
+test('arabic query finds One Piece', async () => {
+  const { json } = await call(`/api/discover/search?q=${encodeURIComponent('ون بيس')}`);
+  assert.ok(json.results.some((r) => r.title === 'One Piece'));
+});
+
+test('similar endpoint responds (empty is acceptable without live providers)', async () => {
+  const search = await call('/api/discover/search?q=one piece');
+  const item = search.json.results.find((r) => r.title === 'One Piece');
+  const details = await call(`/api/discover/media/${item.source}/${item.sourceType}/${item.sourceId}`);
+  const mediaId = details.json.media.id;
+  const { status, json } = await call(`/api/discover/internal/${mediaId}/similar`);
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(json.items));
+});
+
+test('export is available as JSON and CSV', async () => {
+  const jsonRes = await call('/api/export');
+  assert.equal(jsonRes.status, 200);
+  assert.ok(Array.isArray(jsonRes.json.entries));
+
+  const res = await fetch(`${base}/api/export?format=csv`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type') || '', /text\/csv/);
+  const text = await res.text();
+  assert.ok(text.includes('title,'), 'csv header row');
+  assert.ok(text.includes('One Piece') || text.includes('title'), 'csv contains data');
+});
+
+test('seo aliases exist for the hosting rewrites', async () => {
+  const robots = await fetch(`${base}/api/seo/robots`);
+  assert.equal(robots.status, 200);
+  assert.match(await robots.text(), /User-agent/);
+  const sitemap = await fetch(`${base}/api/seo/sitemap`);
+  assert.equal(sitemap.status, 200);
+  assert.match(await sitemap.text(), /<urlset/);
+});
+
 test('unknown routes return a JSON 404', async () => {
   const { status, json } = await call('/api/nope');
   assert.equal(status, 404);

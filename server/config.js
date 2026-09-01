@@ -12,7 +12,22 @@ const num = (value, fallback) => {
 const config = {
   env: process.env.NODE_ENV || 'development',
   port: num(process.env.PORT, 5000),
-  dbPath: process.env.DATABASE_PATH || path.join(__dirname, '..', 'database.sqlite'),
+
+  /**
+   * Database.
+   *  - Local dev: an embedded libSQL file (DATABASE_PATH / DATABASE_URL=file:…).
+   *  - Vercel/serverless: a remote SQLite-compatible URL over HTTP
+   *    (DATABASE_URL=libsql://…|https://… with DATABASE_AUTH_TOKEN).
+   *    Turso's free tier is the intended zero-config pairing.
+   */
+  db: {
+    url:
+      process.env.DATABASE_URL ||
+      process.env.TURSO_DATABASE_URL ||
+      '',
+    authToken: process.env.DATABASE_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN || '',
+    path: process.env.DATABASE_PATH || path.join(__dirname, '..', 'database.sqlite'),
+  },
 
   // --- external APIs (server side only, never shipped to the browser) ---
   tmdb: {

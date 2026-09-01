@@ -32,6 +32,7 @@ router.get('/search', wrap(async (req, res) => {
   res.json({ query: q, type, ...result });
 }));
 
+/** Discovery shelves for the homepage (trending / anime / popular, degraded-safe). */
 router.get('/trending', wrap(async (req, res) => {
   const data = await discovery.trending();
   res.set('Cache-Control', 'private, max-age=600');
@@ -43,14 +44,29 @@ router.get('/media/:source/:type/:id', wrap(async (req, res) => {
   const { source, type, id } = req.params;
   const refresh = req.query.refresh === '1';
   const { media, cached, degraded, stale } = await discovery.details(source, type, id, { refresh });
-  const entry = library.getEntryByMedia(req.user.id, media.id);
+  const entry = await library.getEntryByMedia(req.user.id, media.id);
   res.json({ media, entry, meta: { cached, degraded: !!degraded, stale: !!stale } });
+}));
+
+/** IMDb-style "more like this" shelf for an external reference. */
+router.get('/media/:source/:type/:id/similar', wrap(async (req, res) => {
+  const { source, type, id } = req.params;
+  const { media } = await discovery.details(source, type, id);
+  const items = await discovery.similar(media);
+  res.json({ items });
+}));
+
+/** Similar titles for an already-mirrored media row. */
+router.get('/internal/:mediaId/similar', wrap(async (req, res) => {
+  const media = await discovery.ensureMedia({ internalId: Number(req.params.mediaId) });
+  const items = await discovery.similar(media);
+  res.json({ items });
 }));
 
 /** Internal media id lookup (used after the item is mirrored locally). */
 router.get('/internal/:mediaId', wrap(async (req, res) => {
   const media = await discovery.ensureMedia({ internalId: Number(req.params.mediaId) });
-  const entry = library.getEntryByMedia(req.user.id, media.id);
+  const entry = await library.getEntryByMedia(req.user.id, media.id);
   res.json({ media, entry, meta: { cached: true, degraded: false } });
 }));
 
@@ -59,8 +75,8 @@ router.get('/internal/:mediaId/episodes', wrap(async (req, res) => {
   const mediaId = Number(req.params.mediaId);
   const season = req.query.season ? Number(req.query.season) : null;
   await discovery.getEpisodes(mediaId, { season: season || undefined });
-  const entry = library.getEntryByMedia(req.user.id, mediaId);
-  const episodes = library.episodesWithProgress(entry?.id || 0, mediaId, season || undefined);
+  const entry = await library.getEntryByMedia(req.user.id, mediaId);
+  const episodes = await library.episodesWithProgress(entry?.id || 0, mediaId, season || undefined);
   const seasons = [...new Set(episodes.map((e) => e.seasonNumber))].sort((a, b) => a - b);
   res.json({ episodes, seasons, entryId: entry?.id || null });
 }));

@@ -225,4 +225,29 @@ async function trending(window = 'week') {
     .map(mapSearchItem);
 }
 
-module.exports = { search, details, seasonEpisodes, trending, enabled: () => TMDB.enabled, img };
+/** Popular movies or TV shows (listing endpoints omit media_type -> force it). */
+async function popular(type = 'movie') {
+  const safeType = type === 'tv' ? 'tv' : 'movie';
+  const data = await call(`/${safeType}/popular`, {}, config.cache.trendingTtlMs);
+  return (data?.results || []).map((r) => mapSearchItem({ ...r, media_type: safeType }));
+}
+
+/** Titles similar to a given one (discovery aid, shown on the details page). */
+async function similar(type, id) {
+  const safeType = type === 'tv' ? 'tv' : 'movie';
+  const data = await call(`/${safeType}/${id}/similar`, {}, config.cache.detailsTtlMs);
+  return (data?.results || [])
+    .slice(0, 14)
+    .map((r) => mapSearchItem({ ...r, media_type: safeType }));
+}
+
+module.exports = {
+  search,
+  details,
+  seasonEpisodes,
+  trending,
+  popular,
+  similar,
+  enabled: () => TMDB.enabled,
+  img,
+};

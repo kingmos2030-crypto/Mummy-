@@ -12,6 +12,7 @@ const Stats = lazy(() => import('./pages/Stats'));
 const Profile = lazy(() => import('./pages/Profile'));
 const History = lazy(() => import('./pages/History'));
 const Tags = lazy(() => import('./pages/Tags'));
+const Settings = lazy(() => import('./pages/Settings'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 export default function App() {
@@ -24,11 +25,13 @@ export default function App() {
           <Route path="/title/:mediaId" element={<Title />} />
           <Route path="/discover/:source/:type/:sourceId" element={<Title />} />
           <Route path="/library" element={<Library />} />
+          <Route path="/favorites" element={<Library presetFavorite />} />
           <Route path="/watchlist" element={<Watchlist />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/history" element={<History />} />
           <Route path="/tags" element={<Tags />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/index.html" element={<Navigate to="/" replace />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

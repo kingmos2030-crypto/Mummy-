@@ -1,16 +1,7 @@
 'use strict';
 
-const Database = require('better-sqlite3');
-const config = require('../config');
-
-const db = new Database(config.dbPath);
-
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-db.pragma('busy_timeout = 5000');
-
 /**
- * Schema.
+ * Database layer.
  *
  * Hard separation between:
  *   - EXTERNAL data (media, media_sources, seasons, episodes, api_cache)
@@ -19,8 +10,15 @@ db.pragma('busy_timeout = 5000');
  *     tags, entry_tags, users) => the only data that is truly mine.
  *
  * No video/stream/download columns exist anywhere by design.
+ *
+ * Transport: @libsql/client — embedded `file:` locally, remote HTTPS (Turso)
+ * on Vercel/serverless. Everything is async; the rest of the app awaits it.
  */
-db.exec(`
+
+const config = require('../config');
+const db = require('./client');
+
+const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   username      TEXT NOT NULL UNIQUE,
@@ -35,7 +33,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- ---------- EXTERNAL METADATA MIRROR ----------
 CREATE TABLE IF NOT EXISTS media (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  media_type        TEXT NOT NULL,            -- movie | tv | anime | cartoon | documentary | other
+  media_type        TEXT NOT NULL,
   title             TEXT NOT NULL,
   original_title    TEXT DEFAULT '',
   release_date      TEXT,
@@ -46,21 +44,21 @@ CREATE TABLE IF NOT EXISTS media (
   poster_url        TEXT,
   backdrop_url      TEXT,
   runtime           INTEGER,
-  status            TEXT DEFAULT '',          -- Released / Returning Series / Airing ...
-  genres            TEXT DEFAULT '[]',        -- JSON string[]
-  languages         TEXT DEFAULT '[]',        -- JSON string[]
-  countries         TEXT DEFAULT '[]',        -- JSON string[]
-  companies         TEXT DEFAULT '[]',        -- JSON string[] (studios / production companies)
-  cast_json         TEXT DEFAULT '[]',        -- JSON [{name, character, image, order}]
-  crew_json         TEXT DEFAULT '[]',        -- JSON [{name, job, department, image}]
-  trailers          TEXT DEFAULT '[]',        -- JSON [{name, site, key, url}] -- official trailer links only
+  status            TEXT DEFAULT '',
+  genres            TEXT DEFAULT '[]',
+  languages         TEXT DEFAULT '[]',
+  countries         TEXT DEFAULT '[]',
+  companies         TEXT DEFAULT '[]',
+  cast_json         TEXT DEFAULT '[]',
+  crew_json         TEXT DEFAULT '[]',
+  trailers          TEXT DEFAULT '[]',
   external_rating   REAL,
   external_votes    INTEGER,
   total_seasons     INTEGER DEFAULT 0,
   total_episodes    INTEGER DEFAULT 0,
   homepage          TEXT DEFAULT '',
-  primary_source    TEXT DEFAULT '',          -- tmdb | jikan | tvmaze | offline
-  raw_extra         TEXT DEFAULT '{}',        -- JSON, provider specific leftovers
+  primary_source    TEXT DEFAULT '',
+  raw_extra         TEXT DEFAULT '{}',
   fetched_at        TEXT NOT NULL DEFAULT (datetime('now')),
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
@@ -72,8 +70,8 @@ CREATE INDEX IF NOT EXISTS idx_media_title ON media(title);
 CREATE TABLE IF NOT EXISTS media_sources (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   media_id    INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
-  source      TEXT NOT NULL,      -- tmdb | jikan | tvmaze | imdb | offline
-  source_type TEXT NOT NULL DEFAULT '',  -- movie | tv | anime
+  source      TEXT NOT NULL,
+  source_type TEXT NOT NULL DEFAULT '',
   source_id   TEXT NOT NULL,
   url         TEXT DEFAULT '',
   is_primary  INTEGER NOT NULL DEFAULT 0,
@@ -116,9 +114,8 @@ CREATE TABLE IF NOT EXISTS personal_entries (
   user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   media_id        INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
   status          TEXT NOT NULL DEFAULT 'want_to_watch',
-       -- watched | watching | want_to_watch | paused | dropped | rewatching
-  rating          REAL,             -- 0..10 step 0.25
-  quality         TEXT,             -- CAM | SD | 480p | ... | 4K HDR
+  rating          REAL,
+  quality         TEXT,
   is_favorite     INTEGER NOT NULL DEFAULT 0,
   notes           TEXT DEFAULT '',
   date_started    TEXT,
@@ -137,7 +134,7 @@ CREATE TABLE IF NOT EXISTS watch_progress (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   entry_id    INTEGER NOT NULL REFERENCES personal_entries(id) ON DELETE CASCADE,
   episode_id  INTEGER NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
-  status      TEXT NOT NULL DEFAULT 'watched', -- watched | watching | not_watched
+  status      TEXT NOT NULL DEFAULT 'watched',
   watched_at  TEXT,
   UNIQUE(entry_id, episode_id)
 );
@@ -179,46 +176,73 @@ CREATE TABLE IF NOT EXISTS api_cache (
   expires_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_cache_expiry ON api_cache(expires_at);
-`);
 
-// ---- seed the single local owner profile -------------------------------
-function ensureDefaultUser() {
-  const existing = db
-    .prepare('SELECT * FROM users WHERE username = ?')
-    .get(config.defaultUser.username);
-  if (existing) return existing;
-  db.prepare(
-    `INSERT INTO users (username, display_name, bio, avatar_url)
-     VALUES (?, ?, ?, ?)`
-  ).run(
-    config.defaultUser.username,
-    config.defaultUser.displayName,
-    'كل ما شاهدته، وكل ما أشاهده، وكل ما أنوي مشاهدته.',
-    ''
-  );
-  return db
-    .prepare('SELECT * FROM users WHERE username = ?')
-    .get(config.defaultUser.username);
-}
-
-const defaultUser = ensureDefaultUser();
+PRAGMA foreign_keys = ON;
+`;
 
 // default starter tags (customisable / deletable)
-const seedTags = [
+const SEED_TAGS = [
   ['تحفة فنية', '#c9a227'],
   ['يستحق إعادة المشاهدة', '#8b5cf6'],
   ['طفولة', '#38bdf8'],
   ['مريح', '#34d399'],
   ['مبخوس حقه', '#f472b6'],
 ];
-const insertTag = db.prepare(
-  'INSERT OR IGNORE INTO tags (user_id, name, color) VALUES (?, ?, ?)'
-);
-const tagCount = db
-  .prepare('SELECT COUNT(*) AS c FROM tags WHERE user_id = ?')
-  .get(defaultUser.id).c;
-if (tagCount === 0) {
-  for (const [name, color] of seedTags) insertTag.run(defaultUser.id, name, color);
+
+let cachedUser = null;
+
+async function seedOwner() {
+  const existing = await db.raw.get('SELECT * FROM users WHERE username = ?', [config.defaultUser.username]);
+  if (existing) return existing;
+  await db.raw.run(`INSERT INTO users (username, display_name, bio, avatar_url) VALUES (?, ?, ?, ?)`, [
+    config.defaultUser.username,
+    config.defaultUser.displayName,
+    'كل ما شاهدته، وكل ما أشاهده، وكل ما أنوي مشاهدته.',
+    '',
+  ]);
+  const user = await db.raw.get('SELECT * FROM users WHERE username = ?', [config.defaultUser.username]);
+  const count = await db.raw.get('SELECT COUNT(*) AS c FROM tags WHERE user_id = ?', [user.id]);
+  if ((count?.c || 0) === 0) {
+    for (const [name, color] of SEED_TAGS) {
+      // eslint-disable-next-line no-await-in-loop
+      await db.raw.run('INSERT OR IGNORE INTO tags (user_id, name, color) VALUES (?, ?, ?)', [
+        user.id,
+        name,
+        color,
+      ]);
+    }
+  }
+  return user;
 }
 
-module.exports = { db, defaultUser, ensureDefaultUser };
+// Bootstrap: schema + owner user, once per process. Every facade call awaits it.
+db.ready = (async () => {
+  try {
+    await db.exec(SCHEMA);
+    cachedUser = await seedOwner();
+    return true;
+  } catch (error) {
+    console.error('[db] bootstrap failed:', error.message);
+    throw error;
+  }
+})();
+
+/** The single local owner profile (single-user mode until auth ships). */
+async function ensureDefaultUser() {
+  await db.ready;
+  if (cachedUser) return cachedUser;
+  cachedUser = await db.get('SELECT * FROM users WHERE username = ?', [config.defaultUser.username]);
+  if (!cachedUser) {
+    // extremely defensive: recreate if the row vanished
+    cachedUser = await seedOwner();
+  }
+  return cachedUser;
+}
+
+/** Drop the cached owner row (after profile edits). */
+async function reloadDefaultUser() {
+  cachedUser = null;
+  return ensureDefaultUser();
+}
+
+module.exports = { db, ensureDefaultUser, reloadDefaultUser };

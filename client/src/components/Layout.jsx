@@ -3,17 +3,19 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 
 const NAV = [
-  { to: '/', label: 'الرئيسية', short: 'الرئيسية', icon: '◉', end: true },
-  { to: '/search', label: 'اكتشف', short: 'اكتشف', icon: '⌕' },
-  { to: '/library', label: 'مكتبتي', short: 'مكتبتي', icon: '▤' },
-  { to: '/watchlist', label: 'أريد مشاهدته', short: 'قائمتي', icon: '＋' },
-  { to: '/stats', label: 'إحصائياتي', short: 'إحصائي', icon: '◔' },
-  { to: '/profile', label: 'ملفي', short: 'ملفي', icon: '☺' },
+  { to: '/', labelKey: 'nav.home', shortKey: 'nav.home', icon: '◉', end: true },
+  { to: '/search', labelKey: 'nav.discover', shortKey: 'nav.discover', icon: '⌕' },
+  { to: '/library', labelKey: 'nav.library', shortKey: 'nav.library', icon: '▤' },
+  { to: '/watchlist', labelKey: 'nav.watchlist', shortKey: 'nav.watchlist.short', icon: '＋' },
+  { to: '/stats', labelKey: 'nav.stats', shortKey: 'nav.stats.short', icon: '◔' },
+  { to: '/profile', labelKey: 'nav.profile', shortKey: 'nav.profile', icon: '☺' },
 ];
 
 const MORE = [
-  { to: '/history', label: 'سجل المشاهدة', icon: '🕘' },
-  { to: '/tags', label: 'الوسوم', icon: '🏷' },
+  { to: '/favorites', labelKey: 'nav.favorites', icon: '❤' },
+  { to: '/history', labelKey: 'nav.history', icon: '🕘' },
+  { to: '/tags', labelKey: 'nav.tags', icon: '🏷' },
+  { to: '/settings', labelKey: 'nav.settings', icon: '⚙' },
 ];
 
 function Toasts() {
@@ -46,6 +48,7 @@ export default function Layout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const inputRef = useRef(null);
+  const { t } = useApp();
 
   useEffect(() => setMenuOpen(false), [location.pathname]);
 
@@ -70,7 +73,7 @@ export default function Layout({ children }) {
   return (
     <div className="min-h-screen pb-24 sm:pb-8">
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:right-3 focus:top-3 focus:z-50 focus:rounded-xl focus:bg-brass-500 focus:px-3 focus:py-2 focus:text-sm focus:font-bold focus:text-ink-950">
-        تخطَّ إلى المحتوى
+        {t('a11y.skip')}
       </a>
 
       <header className="sticky top-0 z-40 border-b border-white/8 bg-ink-950/80 backdrop-blur-xl">
@@ -90,20 +93,20 @@ export default function Layout({ children }) {
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="ابحث عن فيلم، مسلسل، أنمي…"
-              aria-label="ابحث عن عمل"
+              placeholder={t('search.placeholder')}
+              aria-label={t('search.label')}
               className="field py-2 pe-9 ps-3 text-sm"
             />
             <button
               type="submit"
               className="absolute inset-y-0 end-2 my-auto grid h-7 w-7 place-items-center rounded-lg text-white/60 hover:text-brass-400"
-              aria-label="بحث"
+              aria-label={t('search.submit')}
             >
               ⌕
             </button>
           </form>
 
-          <nav className="hidden items-center gap-1 lg:flex" aria-label="التنقل الرئيسي">
+          <nav className="hidden items-center gap-1 lg:flex" aria-label={t('nav.main')}>
             {NAV.slice(1).map((item) => (
               <NavLink
                 key={item.to}
@@ -114,13 +117,13 @@ export default function Layout({ children }) {
                   }`
                 }
               >
-                {item.label}
+                {t(item.labelKey)}
               </NavLink>
             ))}
           </nav>
 
           <div className="relative">
-            <button type="button" className="btn px-2.5 py-2 text-sm" onClick={() => setMenuOpen((v) => !v)} aria-expanded={menuOpen} aria-label="قائمة إضافية">
+            <button type="button" className="btn px-2.5 py-2 text-sm" onClick={() => setMenuOpen((v) => !v)} aria-expanded={menuOpen} aria-label={t('nav.more')}>
               ⋯
             </button>
             {menuOpen && (
@@ -132,7 +135,7 @@ export default function Layout({ children }) {
                     className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-white/75 hover:bg-white/8 hover:text-white"
                   >
                     <span aria-hidden>{item.icon}</span>
-                    {item.label}
+                    {t(item.labelKey)}
                   </Link>
                 ))}
               </div>
@@ -146,16 +149,16 @@ export default function Layout({ children }) {
       </main>
 
       <footer className="mx-auto max-w-7xl px-4 pb-6 pt-4 text-center text-[0.7rem] leading-relaxed text-white/35">
-        <p>
-          Mummy شافت — مكتشف ومتتبّع شخصي للأعمال. لا يستضيف هذا الموقع أي ملفات فيديو أو روابط مشاهدة؛ يعرض بيانات
-          عامة فقط.
-        </p>
+        <p>{t('footer.line1')}</p>
+        <p className="mt-1">{t('footer.line2')}</p>
         <p className="mt-1">
-          مصادر البيانات: TMDB · Jikan (MyAnimeList) · TVmaze — هذا المشروع غير تابع أو معتمد من أيٍّ منها.
+          <Link to="/settings" className="underline decoration-white/20 underline-offset-4 hover:text-white/60">
+            {t('nav.settings')}
+          </Link>
         </p>
       </footer>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-ink-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl sm:hidden" aria-label="تنقل الجوال">
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-ink-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl sm:hidden" aria-label={t('nav.mobile')}>
         <div className="grid grid-cols-6">
           {NAV.map((item) => (
             <NavLink
@@ -171,7 +174,7 @@ export default function Layout({ children }) {
               <span className="text-base leading-none" aria-hidden>
                 {item.icon}
               </span>
-              <span className="max-w-full truncate px-0.5">{item.short || item.label}</span>
+              <span className="max-w-full truncate px-0.5">{t(item.shortKey)}</span>
             </NavLink>
           ))}
         </div>

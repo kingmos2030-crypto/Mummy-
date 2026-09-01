@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import api from '../api/client';
 import { useApp } from '../context/AppContext';
 import PosterArt from '../components/PosterArt';
+import MediaCard from '../components/MediaCard';
 import EntryEditor from '../components/EntryEditor';
 import EpisodeTracker from '../components/EpisodeTracker';
 import { BlockSkeleton, ErrorState } from '../components/ui';
@@ -58,6 +59,7 @@ export default function Title() {
   const { toast, bumpLibrary } = useApp();
   const [data, setData] = useState(null);
   const [entry, setEntry] = useState(null);
+  const [similar, setSimilar] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -66,6 +68,7 @@ export default function Title() {
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
+    setSimilar([]);
     const promise = mediaId
       ? api.internalDetails(mediaId)
       : api.externalDetails(source, type, decodeURIComponent(sourceId));
@@ -79,6 +82,16 @@ export default function Title() {
   }, [mediaId, source, type, sourceId]);
 
   useEffect(load, [load]);
+
+  // IMDb-style "more like this" — loaded lazily, optional by design
+  useEffect(() => {
+    const promise = mediaId
+      ? api.similarInternal(mediaId)
+      : api.similarExternal(source, type, decodeURIComponent(sourceId));
+    promise
+      .then((res) => setSimilar(res.items || []))
+      .catch(() => setSimilar([]));
+  }, [mediaId, source, type, sourceId]);
 
   const media = data?.media;
 
@@ -376,6 +389,27 @@ export default function Title() {
               ) : null
             )}
             {media.crew?.length > 0 && <PersonChips people={media.crew.slice(0, 16)} />}
+          </div>
+        </Section>
+      )}
+
+      {/* ------------------------------------------------ similar titles */}
+      {similar.length > 0 && (
+        <Section title="أعمال مشابهة" aside={<span className="text-[0.65rem] text-white/35">حسب المصدر نفسه</span>}>
+          <div className="scroll-row">
+            {similar.map((item) => (
+              <MediaCard
+                key={item.key}
+                to={`/discover/${item.source}/${item.sourceType}/${encodeURIComponent(item.sourceId)}`}
+                title={item.title}
+                originalTitle={item.originalTitle}
+                posterUrl={item.posterUrl}
+                year={item.releaseYear}
+                mediaType={item.mediaType}
+                genres={item.genres}
+                externalRating={item.externalRating}
+              />
+            ))}
           </div>
         </Section>
       )}

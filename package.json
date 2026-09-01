@@ -24,8 +24,11 @@
     "url": "https://github.com/kingmos2030-crypto/Mummy-/issues"
   },
   "homepage": "https://github.com/kingmos2030-crypto/Mummy-#readme",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
-    "better-sqlite3": "^13.0.3",
+    "@libsql/client": "^0.17.4",
     "compression": "^1.8.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
