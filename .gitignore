@@ -3,7 +3,13 @@ dist/
 build/
 .cache/
 database.sqlite
+database.sqlite-wal
+database.sqlite-shm
+*.sqlite
+*.sqlite-*
 .env
+.env.local
 .DS_Store
 client/node_modules/
 client/dist/
+coverage/
